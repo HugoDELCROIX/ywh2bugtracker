@@ -103,6 +103,14 @@ class JiraConfiguration(TrackerConfiguration):
         description="Environment for the issue",
         required=False,
     )
+    pat: StrAttributeType = Attribute.create(
+        value_type=str,
+        short_description="Personal Access Token",
+        description="Personal Access Token for YesWeHack",
+        required=True,
+        secret=True,
+        validator=not_blank_validator,
+    )
 
     def __init__(
         self,
@@ -118,6 +126,7 @@ class JiraConfiguration(TrackerConfiguration):
         reporter: Optional[Text] = None,
         assignee: Optional[Text] = None,
         environment: Optional[str] = None,
+        pat: Optional[Text] = None,
         **kwargs: Any,
     ):
         """
@@ -146,6 +155,7 @@ class JiraConfiguration(TrackerConfiguration):
         self.reporter = reporter
         self.assignee = assignee
         self.environment = environment
+        self.pat = pat
 
 
 TrackerConfiguration.register_subtype(

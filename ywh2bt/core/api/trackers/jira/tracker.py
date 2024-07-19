@@ -17,6 +17,7 @@ from jira import JIRA
 from jira import Comment as JIRAComment
 from jira import Issue as JIRAIssue
 from jira import JIRAError
+import requests
 from requests_toolbelt.multipart.encoder import CustomBytesIO  # type: ignore
 
 from ywh2bt.core.api.formatter.markdown import ReportMessageMarkdownFormatter
@@ -60,10 +61,7 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
     _report_attachment_name_prefix: str = "R"
     _comment_attachment_name_prefix: str = "C"
 
-    def __init__(
-        self,
-        configuration: JiraConfiguration,
-    ):
+    def __init__(self, configuration: JiraConfiguration):
         """
         Initialize self.
 
@@ -75,6 +73,7 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
         )
         self._jira = None
         self._message_formatter = JiraReportMessageFormatter()
+        self.api_token = configuration.pat
 
     @property
     def tracker_type(self) -> str:
@@ -215,33 +214,116 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
             information about the sent report
         """
         self._ensure_auth()
-        title = self._message_formatter.format_report_title(
-            report=report,
-        )
+        title = self._message_formatter.format_report_title(report=report)
         if len(title) > _TITLE_MAX_SIZE:
             title = f"{title[:_TITLE_MAX_SIZE - 3]}..."
 
-        description = "You can check the shared folder containing the details of the attack or contact the Audit team for more information."
+        # Fetch the severity from YWH
+        severity = self.get_report_severity(report.report_id)
+
+        if severity in ["H", "C"]:
+            description = "You can check the shared folder containing the details of the attack or contact the Audit team for more information."
+        else:
+            description = self._message_formatter.format_report_description(
+                report=report,
+            ) + self._get_attachments_list_description(
+                title="*Attachments*:",
+                item_template=self._attachments_list_description_item_jira_template,
+                attachments=report.attachments,
+                unique_name_prefix=self._report_attachment_name_prefix,
+            )
+
+        markdown_description = ""
+        description_attachment = None
+        if len(description) > _TEXT_MAX_SIZE:
+            description_attachment = self._build_external_description_attachment(
+                name=f'report-{report.local_id.replace("#", "")}-description.md',
+            )
+            markdown_description = ReportMessageMarkdownFormatter().format_report_description(
+                report=report,
+            ) + self._get_attachments_list_description(
+                title="**Attachments**:",
+                item_template=self._attachments_list_description_item_markdown_template,
+                attachments=report.attachments,
+                unique_name_prefix=self._report_attachment_name_prefix,
+            )
+            report_copy = deepcopy(report)
+            report_copy.description_html = (
+                "<p>This report description is too large to fit into a JIRA issue. "
+                + f'See attachment <a href="{description_attachment.url}">{description_attachment.original_name}</a> '
+                + "for more details.</p>"
+            )
+            description = self._message_formatter.format_report_description(
+                report=report_copy,
+            ) + self._get_attachments_list_description(
+                title="*Attachments*:",
+                item_template=self._attachments_list_description_item_jira_template,
+                attachments=[
+                    description_attachment,
+                    *report.attachments,
+                ],
+                unique_name_prefix=self._report_attachment_name_prefix,
+            )
 
         jira_issue = self._create_issue(
             title=title,
-            description="This issue is being synchronized. Please check back in a moment.",
             parent_key=self.configuration.parent_key,
             labels=self.configuration.labels,
             reporter=self.configuration.reporter,
             assignee=self.configuration.assignee,
             environment=self.configuration.environment,
-        )
-
-        jira_issue.update(
             description=description,
         )
+
+        if severity not in ["H", "C"]:
+            description, markdown_description = self._replace_attachments_references(
+                uploads=self._upload_attachments(
+                    issue=jira_issue,
+                    attachments=report.attachments,
+                    unique_name_prefix=self._report_attachment_name_prefix,
+                ),
+                referencing_texts=[
+                    description,
+                    markdown_description,
+                ],
+                unique_name_prefix=self._report_attachment_name_prefix,
+            )
+            if description_attachment:
+                description_attachment.data_loader = lambda: bytes(markdown_description, "utf-8")
+                description = self._replace_attachments_references(
+                    uploads=self._upload_attachments(
+                        issue=jira_issue,
+                        attachments=[
+                            description_attachment,
+                        ],
+                        unique_name_prefix=self._report_attachment_name_prefix,
+                    ),
+                    referencing_texts=[
+                        description,
+                    ],
+                    unique_name_prefix=self._report_attachment_name_prefix,
+                )[0]
+            jira_issue.update(
+                description=description,
+            )
 
         return self._build_tracker_issue(
             issue_id=jira_issue.key,
             issue_url=jira_issue.permalink(),  # type: ignore
             closed=False,
         )
+
+    def get_report_severity(self, report_id):
+        url = f"https://api.yeswehack.com/reports/{report_id}"
+        headers = {"X-AUTH-TOKEN": self.api_token}
+        response = requests.get(url, headers=headers, verify=False)
+        if response.status_code == 200:
+            report = response.json()
+            cvss = report.get("cvss", {})
+            criticity = cvss.get("criticity")
+            return criticity
+        else:
+            response.raise_for_status()
 
     def _build_external_description_attachment(
         self,
