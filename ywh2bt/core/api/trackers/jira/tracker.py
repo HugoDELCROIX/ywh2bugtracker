@@ -1,4 +1,5 @@
 """Models and functions used for data synchronisation between YesWeHack and Jira trackers."""
+
 import re
 from copy import deepcopy
 from datetime import datetime
@@ -219,79 +220,23 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
         )
         if len(title) > _TITLE_MAX_SIZE:
             title = f"{title[:_TITLE_MAX_SIZE - 3]}..."
-        description = self._message_formatter.format_report_description(
-            report=report,
-        ) + self._get_attachments_list_description(
-            title="*Attachments*:",
-            item_template=self._attachments_list_description_item_jira_template,
-            attachments=report.attachments,
-            unique_name_prefix=self._report_attachment_name_prefix,
-        )
-        markdown_description = ""
-        description_attachment = None
-        if len(description) > _TEXT_MAX_SIZE:
-            description_attachment = self._build_external_description_attachment(
-                name=f'report-{report.local_id.replace("#", "")}-description.md',
-            )
-            markdown_description = ReportMessageMarkdownFormatter().format_report_description(
-                report=report,
-            ) + self._get_attachments_list_description(
-                title="**Attachments**:",
-                item_template=self._attachments_list_description_item_markdown_template,
-                attachments=report.attachments,
-                unique_name_prefix=self._report_attachment_name_prefix,
-            )
-            report_copy = deepcopy(report)
-            report_copy.description_html = (
-                "<p>This report description is too large to fit into a JIRA issue. "
-                + f'See attachment <a href="{description_attachment.url}">{description_attachment.original_name}</a> '
-                + "for more details.</p>"
-            )
-            description = self._message_formatter.format_report_description(
-                report=report_copy,
-            ) + self._get_attachments_list_description(
-                title="*Attachments*:",
-                item_template=self._attachments_list_description_item_jira_template,
-                attachments=[
-                    description_attachment,
-                    *report.attachments,
-                ],
-                unique_name_prefix=self._report_attachment_name_prefix,
-            )
+
+        description = "You can check the shared folder containing the details of the attack or contact the Audit team for more information."
+
         jira_issue = self._create_issue(
             title=title,
             description="This issue is being synchronized. Please check back in a moment.",
+            parent_key=self.configuration.parent_key,
+            labels=self.configuration.labels,
+            reporter=self.configuration.reporter,
+            assignee=self.configuration.assignee,
+            environment=self.configuration.environment,
         )
-        description, markdown_description = self._replace_attachments_references(
-            uploads=self._upload_attachments(
-                issue=jira_issue,
-                attachments=report.attachments,
-                unique_name_prefix=self._report_attachment_name_prefix,
-            ),
-            referencing_texts=[
-                description,
-                markdown_description,
-            ],
-            unique_name_prefix=self._report_attachment_name_prefix,
-        )
-        if description_attachment:
-            description_attachment.data_loader = lambda: bytes(markdown_description, "utf-8")
-            description = self._replace_attachments_references(
-                uploads=self._upload_attachments(
-                    issue=jira_issue,
-                    attachments=[
-                        description_attachment,
-                    ],
-                    unique_name_prefix=self._report_attachment_name_prefix,
-                ),
-                referencing_texts=[
-                    description,
-                ],
-                unique_name_prefix=self._report_attachment_name_prefix,
-            )[0]
+
         jira_issue.update(
             description=description,
         )
+
         return self._build_tracker_issue(
             issue_id=jira_issue.key,
             issue_url=jira_issue.permalink(),  # type: ignore
@@ -382,10 +327,35 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
                 f"Unable to get JIRA issue {issue_id} in project {self.configuration.project}",
             ) from e
 
+    def get_user_account_id(self, username: str) -> str:
+        """
+        Get the account ID for a user by their username.
+
+        Args:
+            username: The username of the user.
+
+        Returns:
+            The account ID of the user.
+        """
+        try:
+            user = self._get_client().search_users(query=username)
+            if user:
+                return user[0].accountId
+        except JIRAError as e:
+            raise JiraTrackerClientError(
+                f"Unable to fetch account ID for user {username}: {e}",
+            ) from e
+        return username
+
     def _create_issue(
         self,
         title: str,
         description: str,
+        parent_key: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        reporter: Optional[str] = None,
+        assignee: Optional[str] = None,
+        environment: Optional[str] = None,
     ) -> JIRAIssue:
         fields = {
             "project": {
@@ -397,13 +367,24 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
                 "name": self.configuration.issuetype,
             },
         }
+        if parent_key:
+            fields["parent"] = {"key": parent_key}
+        if labels:
+            fields["labels"] = labels
+        if reporter:
+            fields["reporter"] = {"id": self.get_user_account_id(reporter)}
+        if assignee:
+            fields["assignee"] = {"id": self.get_user_account_id(assignee)}
+        if environment:
+            fields["environment"] = environment
+
         try:
             return self._get_client().create_issue(
                 fields=fields,
             )
         except JIRAError as e:
             raise JiraTrackerClientError(
-                f"Unable to create JIRA issue for project {self.configuration.project}",
+                f"Unable to create JIRA issue for project {self.configuration.project}: {e}",
             ) from e
 
     def _add_comment(
@@ -411,7 +392,9 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
         issue: JIRAIssue,
         log: Log,
     ) -> JIRAComment:
-        comment_body = self._message_formatter.format_log(log=log,) + self._get_attachments_list_description(
+        comment_body = self._message_formatter.format_log(
+            log=log,
+        ) + self._get_attachments_list_description(
             title="*Attachments*:",
             item_template=self._attachments_list_description_item_jira_template,
             attachments=log.attachments,
@@ -437,7 +420,9 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
                 + f'See attachment <a href="{body_attachment.url}">{body_attachment.original_name}</a> '
                 + "for more details.</p>"
             )
-            comment_body = self._message_formatter.format_log(log=log_copy,) + self._get_attachments_list_description(
+            comment_body = self._message_formatter.format_log(
+                log=log_copy,
+            ) + self._get_attachments_list_description(
                 title="*Attachments*:",
                 item_template=self._attachments_list_description_item_jira_template,
                 attachments=[

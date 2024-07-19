@@ -1,6 +1,8 @@
 """Models used for the configuration of a Jira tracker."""
+
 from typing import (
     Any,
+    List,
     Optional,
     Text,
 )
@@ -68,6 +70,39 @@ class JiraConfiguration(TrackerConfiguration):
         description="Issue closed status (sensitive to account language)",
         default="Closed",
     )
+    parent_key: StrAttributeType = Attribute.create(
+        value_type=str,
+        short_description="Epic Link",
+        description="Epic Link ID to associate the issue with an Epic",
+        required=False,
+        validator=not_blank_validator,
+    )
+    labels: Optional[List[str]] = Attribute.create(
+        value_type=list,
+        short_description="Labels",
+        description="List of labels to be applied to the issue",
+        required=False,
+    )
+    reporter: Optional[str] = Attribute.create(
+        value_type=str,
+        short_description="Reporter",
+        description="The reporter of the issue",
+        required=False,
+        validator=not_blank_validator,
+    )
+    assignee: Optional[str] = Attribute.create(
+        value_type=str,
+        short_description="Assignee",
+        description="The assignee of the issue",
+        required=False,
+        validator=not_blank_validator,
+    )
+    environment: Optional[str] = Attribute.create(
+        value_type=str,
+        short_description="Environment",
+        description="Environment for the issue",
+        required=False,
+    )
 
     def __init__(
         self,
@@ -78,6 +113,11 @@ class JiraConfiguration(TrackerConfiguration):
         verify: Optional[bool] = None,
         issuetype: Optional[Text] = None,
         issue_closed_status: Optional[Text] = None,
+        parent_key: Optional[Text] = None,
+        labels: Optional[List[str]] = None,
+        reporter: Optional[Text] = None,
+        assignee: Optional[Text] = None,
+        environment: Optional[str] = None,
         **kwargs: Any,
     ):
         """
@@ -101,6 +141,11 @@ class JiraConfiguration(TrackerConfiguration):
         self.verify = verify
         self.issuetype = issuetype
         self.issue_closed_status = issue_closed_status
+        self.parent_key = parent_key
+        self.labels = labels
+        self.reporter = reporter
+        self.assignee = assignee
+        self.environment = environment
 
 
 TrackerConfiguration.register_subtype(
