@@ -12,3 +12,5 @@ dist/
 **.egg-info
 .dmypy.json
 .tox
+
+/Configs Maisons BB

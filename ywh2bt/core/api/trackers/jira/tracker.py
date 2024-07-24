@@ -222,7 +222,7 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
         severity = self.get_report_severity(report.report_id)
 
         if severity in ["H", "C"]:
-            description = "You can check the shared folder containing the details of the attack or contact the Audit team for more information."
+            description = "This vulnerability has a High or Critical severity. You can check the shared folder containing the details of the attack or contact the Audit team for more information."
         else:
             description = self._message_formatter.format_report_description(
                 report=report,
