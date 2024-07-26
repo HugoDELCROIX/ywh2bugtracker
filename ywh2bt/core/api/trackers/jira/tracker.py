@@ -221,6 +221,15 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
         # Fetch the severity from YWH
         severity = self.get_report_severity(report.report_id)
 
+        if severity == "L" or severity == "M":
+            priority = "Medium"
+        elif severity == "H":
+            priority = "High"
+        elif severity == "C":
+            priority = "Very High"
+        else:
+            priority = "Medium"
+
         if severity in ["H", "C"]:
             description = "This vulnerability has a High or Critical severity. You can check the shared folder containing the details of the attack or contact the Audit team for more information."
         else:
@@ -273,6 +282,7 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
             assignee=self.configuration.assignee,
             environment=self.configuration.environment,
             description=description,
+            priority=priority,
         )
 
         if severity not in ["H", "C"]:
@@ -438,6 +448,7 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
         reporter: Optional[str] = None,
         assignee: Optional[str] = None,
         environment: Optional[str] = None,
+        priority: Optional[str] = None,
     ) -> JIRAIssue:
         fields = {
             "project": {
@@ -459,6 +470,8 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
             fields["assignee"] = {"id": self.get_user_account_id(assignee)}
         if environment:
             fields["environment"] = environment
+        if priority:
+            fields["priority"] = {"name": priority}
 
         try:
             return self._get_client().create_issue(
