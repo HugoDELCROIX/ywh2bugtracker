@@ -447,7 +447,7 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
         labels: Optional[List[str]] = None,
         reporter: Optional[str] = None,
         assignee: Optional[str] = None,
-        environment: Optional[str] = None,
+        environment: Optional[List[Dict[str, str]]] = None,
         priority: Optional[str] = None,
     ) -> JIRAIssue:
         fields = {
@@ -469,7 +469,7 @@ class JiraTrackerClient(TrackerClient[JiraConfiguration]):
         if assignee:
             fields["assignee"] = {"id": self.get_user_account_id(assignee)}
         if environment:
-            fields["environment"] = environment
+            fields["customfield_10558"] = [{"value": env} for env in environment]
         if priority:
             fields["priority"] = {"name": priority}
 

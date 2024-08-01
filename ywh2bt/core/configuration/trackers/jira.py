@@ -97,8 +97,8 @@ class JiraConfiguration(TrackerConfiguration):
         required=False,
         validator=not_blank_validator,
     )
-    environment: Optional[str] = Attribute.create(
-        value_type=str,
+    environment: Optional[List[str]] = Attribute.create(
+        value_type=list,
         short_description="Environment",
         description="Environment for the issue",
         required=False,
